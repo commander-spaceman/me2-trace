@@ -1,6 +1,7 @@
 #include <windows.h>
 #include "pipe.h"
 #include "hook_files.h"
+#include "hook_serialize.h"
 
 BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID reserved) {
     (void)instance;
@@ -11,8 +12,10 @@ BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID reserved) {
         OutputDebugStringA("[me2-trace] DLL loaded");
         pipe_init();
         hook_files_init();
+        hook_serialize_init();  /* no-op until pattern is filled */
         break;
     case DLL_PROCESS_DETACH:
+        hook_serialize_shutdown();
         hook_files_shutdown();
         pipe_shutdown();
         OutputDebugStringA("[me2-trace] DLL unloaded");

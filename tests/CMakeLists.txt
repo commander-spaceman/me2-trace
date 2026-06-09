@@ -16,3 +16,12 @@ target_compile_definitions(test_pipe_server PRIVATE _WIN32_WINNT=0x0600)
 add_test(NAME pipe_sends
     COMMAND test_pipe_server
 )
+
+add_executable(test_pattern test_pattern.c
+    ${CMAKE_SOURCE_DIR}/hook/pattern.c
+)
+target_include_directories(test_pattern PRIVATE ${CMAKE_SOURCE_DIR}/hook)
+target_compile_definitions(test_pattern PRIVATE _WIN32_WINNT=0x0600)
+add_test(NAME pattern_scan
+    COMMAND test_pattern
+)
