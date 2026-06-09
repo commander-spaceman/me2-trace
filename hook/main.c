@@ -11,9 +11,20 @@ BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID reserved) {
         DisableThreadLibraryCalls(instance);
         OutputDebugStringA("[me2-trace] DLL loaded");
     } else if (reason == DLL_PROCESS_DETACH) {
-        pipe_shutdown();
-        hook_serialize_shutdown();
-        hook_files_shutdown();
+        /*
+         * When reserved != NULL the process is terminating — all
+         * other threads have been killed.  It is safe to tear down
+         * hooks without worrying about in-flight detours.
+         *
+         * When reserved == NULL (FreeLibrary), there may still be
+         * threads executing inside our detours.  We keep hooks
+         * alive to avoid use-after-free on trampoline code.
+         */
+        if (reserved != NULL) {
+            pipe_shutdown();
+            hook_serialize_shutdown();
+            hook_files_shutdown();
+        }
         OutputDebugStringA("[me2-trace] DLL unloaded");
     }
     return TRUE;
