@@ -114,10 +114,15 @@ static BOOL WINAPI detour_ReadFile(
     return result;
 }
 
+/* Track whether hooks are active so shutdown is idempotent */
+static int g_hooks_active = 0;
+
 /* ── Public ───────────────────────────────────────────────────── */
 
 int hook_files_init(void) {
     MH_STATUS status;
+
+    if (g_hooks_active) return 0;  /* already initialized */
 
     status = MH_Initialize();
     if (status != MH_OK) {
@@ -150,6 +155,9 @@ int hook_files_init(void) {
                 "[me2-trace] MH_CreateHookApi(ReadFile): %s",
                 MH_StatusToString(status));
         OutputDebugStringA(buf);
+        /* Clean up CreateFileW hook created above */
+        MH_RemoveHook((LPVOID)real_CreateFileW);
+        real_CreateFileW = CreateFileW;
         return 1;
     }
 
@@ -160,14 +168,23 @@ int hook_files_init(void) {
                 "[me2-trace] MH_EnableHook: %s",
                 MH_StatusToString(status));
         OutputDebugStringA(buf);
+        MH_RemoveHook((LPVOID)real_CreateFileW);
+        MH_RemoveHook((LPVOID)real_ReadFile);
+        real_CreateFileW = CreateFileW;
+        real_ReadFile = ReadFile;
         return 1;
     }
 
+    g_hooks_active = 1;
     OutputDebugStringA("[me2-trace] File I/O hooks active");
     return 0;
 }
 
 void hook_files_shutdown(void) {
+    if (!g_hooks_active) return;
+
+    g_hooks_active = 0;
+
     MH_DisableHook(MH_ALL_HOOKS);
     MH_Uninitialize();
     OutputDebugStringA("[me2-trace] File I/O hooks removed");
