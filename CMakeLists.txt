@@ -13,8 +13,8 @@ add_subdirectory(hook)
 # Injector executable
 add_subdirectory(injector)
 
-# Viewer (external console for pipe output) — Phase 2+
-# add_subdirectory(viewer)
+# Viewer (external console for pipe output)
+add_subdirectory(viewer)
 
 # Tests
 enable_testing()
