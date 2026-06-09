@@ -13,7 +13,6 @@ int main(int argc, char **argv) {
     (void)argc;
     (void)argv;
 
-    /* Find the DLL next to the injector */
     char dllPath[MAX_PATH];
     GetModuleFileNameA(NULL, dllPath, MAX_PATH);
     char *lastSep = strrchr(dllPath, '\\');
@@ -31,8 +30,7 @@ int main(int argc, char **argv) {
     si.cb = sizeof(si);
 
     if (!CreateProcessA(
-            NULL,        /* use command line */
-            (LPSTR)GAME_EXE,
+            NULL, (LPSTR)GAME_EXE,
             NULL, NULL, FALSE,
             CREATE_SUSPENDED,
             NULL, NULL,
@@ -60,20 +58,44 @@ int main(int argc, char **argv) {
         remoteMem, 0, NULL);
     if (!remoteThread) fatal("CreateRemoteThread");
 
-    /* Wait for LoadLibrary to complete */
     WaitForSingleObject(remoteThread, INFINITE);
 
-    DWORD exitCode = 0;
-    GetExitCodeThread(remoteThread, &exitCode);
-    if (exitCode == 0) {
+    DWORD dllBase = 0;
+    GetExitCodeThread(remoteThread, &dllBase);
+    if (dllBase == 0) {
         fprintf(stderr, "[me2-trace] WARNING: LoadLibrary returned NULL "
                 "(DLL may have failed to load)\n");
     } else {
-        printf("[me2-trace] DLL loaded at 0x%lX\n", exitCode);
+        printf("[me2-trace] DLL loaded at 0x%lX\n", dllBase);
     }
 
     CloseHandle(remoteThread);
     VirtualFreeEx(pi.hProcess, remoteMem, 0, MEM_RELEASE);
+
+    /* Load DLL in our own process to resolve InitPipe's RVA */
+    HMODULE localDll = LoadLibraryA(dllPath);
+    if (localDll) {
+        FARPROC localInitPipe = GetProcAddress(localDll, "InitPipe");
+        if (localInitPipe) {
+            uintptr_t rva = (uintptr_t)localInitPipe - (uintptr_t)localDll;
+            LPTHREAD_START_ROUTINE remoteInitPipe =
+                (LPTHREAD_START_ROUTINE)((uintptr_t)dllBase + rva);
+
+            printf("[me2-trace] InitPipe RVA: 0x%lX, remote: 0x%p\n",
+                   (unsigned long)rva, (void *)remoteInitPipe);
+
+            HANDLE initThread = CreateRemoteThread(
+                pi.hProcess, NULL, 0, remoteInitPipe, NULL, 0, NULL);
+            if (initThread) {
+                printf("[me2-trace] InitPipe thread started\n");
+                CloseHandle(initThread);
+            } else {
+                fprintf(stderr, "[me2-trace] WARNING: CreateRemoteThread "
+                        "for InitPipe failed (code %lu)\n", GetLastError());
+            }
+        }
+        FreeLibrary(localDll);
+    }
 
     /* Resume the game's main thread */
     printf("[me2-trace] Resuming game process...\n");
