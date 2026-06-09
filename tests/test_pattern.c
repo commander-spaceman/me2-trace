@@ -21,6 +21,10 @@ int main(void) {
     if (!mod) mod = GetModuleHandleW(NULL);
 
     IMAGE_DOS_HEADER *dos = (IMAGE_DOS_HEADER *)mod;
+    if (dos->e_magic != IMAGE_DOS_SIGNATURE) {
+        fprintf(stderr, "FAIL: invalid DOS signature\n");
+        return 1;
+    }
     IMAGE_NT_HEADERS *nt = (IMAGE_NT_HEADERS *)((uintptr_t)mod + dos->e_lfanew);
     printf("Module: %ls, base=%p, size=0x%lX\n",
            fn, (void *)mod, (unsigned long)nt->OptionalHeader.SizeOfImage);

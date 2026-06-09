@@ -14,10 +14,18 @@ int main(int argc, char **argv) {
     (void)argv;
 
     char dllPath[MAX_PATH];
-    GetModuleFileNameA(NULL, dllPath, MAX_PATH);
+    DWORD exePathLen = GetModuleFileNameA(NULL, dllPath, MAX_PATH);
+    if (exePathLen == 0 || exePathLen >= MAX_PATH)
+        fatal("cannot determine injector path");
     char *lastSep = strrchr(dllPath, '\\');
-    if (!lastSep) fatal("cannot determine injector path");
+    if (!lastSep) fatal("cannot determine injector directory");
     *(lastSep + 1) = '\0';
+
+    /* Prevent buffer overflow when appending HOOK_DLL */
+    size_t dirLen = strlen(dllPath);
+    size_t remaining = sizeof(dllPath) - dirLen;
+    if (remaining <= strlen(HOOK_DLL))
+        fatal("injector directory path too long for DLL name");
     strcat(dllPath, HOOK_DLL);
 
     printf("[me2-trace] Injector starting\n");
@@ -58,7 +66,19 @@ int main(int argc, char **argv) {
         remoteMem, 0, NULL);
     if (!remoteThread) fatal("CreateRemoteThread");
 
-    WaitForSingleObject(remoteThread, INFINITE);
+    DWORD waitResult = WaitForSingleObject(remoteThread, 15000);
+    if (waitResult == WAIT_TIMEOUT) {
+        fprintf(stderr, "[me2-trace] ERROR: LoadLibrary timed out\n");
+        TerminateThread(remoteThread, 0);
+        CloseHandle(remoteThread);
+        VirtualFreeEx(pi.hProcess, remoteMem, 0, MEM_RELEASE);
+        TerminateProcess(pi.hProcess, 1);
+        CloseHandle(pi.hThread);
+        CloseHandle(pi.hProcess);
+        return 1;
+    }
+    if (waitResult != WAIT_OBJECT_0)
+        fatal("WaitForSingleObject failed");
 
     DWORD dllBase = 0;
     GetExitCodeThread(remoteThread, &dllBase);

@@ -58,6 +58,13 @@ uintptr_t pattern_scan(const wchar_t *module_name, const char *pattern) {
 
     /* Get module bounds from PE headers */
     IMAGE_DOS_HEADER *dos = (IMAGE_DOS_HEADER *)mod;
+
+    /* Validate DOS header */
+    if (dos->e_magic != IMAGE_DOS_SIGNATURE) {
+        OutputDebugStringA("[me2-trace] pattern_scan: invalid DOS signature");
+        return 0;
+    }
+
     IMAGE_NT_HEADERS *nt = (IMAGE_NT_HEADERS *)((uintptr_t)mod + dos->e_lfanew);
     uintptr_t base = (uintptr_t)mod;
     size_t size = nt->OptionalHeader.SizeOfImage;
@@ -67,9 +74,15 @@ uintptr_t pattern_scan(const wchar_t *module_name, const char *pattern) {
     int pat_len = compile_pattern(pattern, pat_bytes, pat_mask, 256);
     if (pat_len <= 0) return 0;
 
+    /* Bounds check: pattern must fit within the module */
+    if ((size_t)pat_len > size) {
+        OutputDebugStringA("[me2-trace] pattern_scan: pattern larger than module");
+        return 0;
+    }
+
     /* Linear scan */
     const unsigned char *start = (const unsigned char *)base;
-    const unsigned char *end = start + size - pat_len;
+    const unsigned char *end = start + size - (size_t)pat_len;
 
     for (const unsigned char *addr = start; addr < end; addr++) {
         int match = 1;
