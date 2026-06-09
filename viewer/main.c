@@ -11,8 +11,6 @@ static void print_line(const char *line) {
     WORD default_attr = 7; /* light gray */
 
     /* Very simple color coding based on message type */
-    const char *type = "\"type\":\"";
-
     if (strstr(line, "\"type\":\"file\"")) {
         SetConsoleTextAttribute(h, FOREGROUND_GREEN | FOREGROUND_INTENSITY);
         printf("[FILE] ");
@@ -40,12 +38,14 @@ static void print_line(const char *line) {
 
 int main(void) {
     printf("[me2-trace] Viewer connecting to pipe...\n");
-    printf("[me2-trace] Waiting for game to start...\n");
+    printf("[me2-trace] Waiting for game to start (timeout 60s)...\n");
     printf("---\n");
 
     /* Try to connect; the DLL may not have created the pipe yet */
     HANDLE pipe = INVALID_HANDLE_VALUE;
-    while (pipe == INVALID_HANDLE_VALUE) {
+    int retries = 0;
+
+    while (pipe == INVALID_HANDLE_VALUE && retries < 120) {
         pipe = CreateFileA(
             PIPE_NAME,
             GENERIC_READ,
@@ -66,7 +66,13 @@ int main(void) {
             if (!WaitNamedPipeA(PIPE_NAME, 5000)) {
                 Sleep(500);
             }
+            retries++;
         }
+    }
+
+    if (pipe == INVALID_HANDLE_VALUE) {
+        fprintf(stderr, "[me2-trace] ERROR: Pipe not available after 60s\n");
+        return 1;
     }
 
     printf("[me2-trace] Connected! Streaming events...\n");
@@ -88,6 +94,12 @@ int main(void) {
                 line[li++] = buf[i];
             }
         }
+    }
+
+    /* Flush any partial line buffered before disconnect */
+    if (li > 0) {
+        line[li] = '\0';
+        print_line(line);
     }
 
     DWORD err = GetLastError();

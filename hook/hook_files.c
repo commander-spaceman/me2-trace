@@ -14,11 +14,6 @@ static HANDLE (WINAPI *real_CreateFileW)(
 static BOOL (WINAPI *real_ReadFile)(
     HANDLE, LPVOID, DWORD, LPDWORD, LPOVERLAPPED) = ReadFile;
 
-/* Track open handles to avoid duplicate open messages on re-opens */
-#define MAX_TRACKED 256
-static HANDLE g_tracked[MAX_TRACKED];
-static int g_tracked_count = 0;
-
 /* Check if a file extension is game-relevant */
 static int is_game_ext(const wchar_t *path) {
     const wchar_t *dot = NULL;
