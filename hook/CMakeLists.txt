@@ -1,6 +1,7 @@
 add_library(hook SHARED
     main.c
     pipe.c
+    hook_files.c
 )
 
 set_target_properties(hook PROPERTIES
