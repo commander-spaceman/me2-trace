@@ -1,5 +1,5 @@
-# Created by https://www.toptal.com/developers/gitignore/api/c,java
-# Edit at https://www.toptal.com/developers/gitignore?templates=c,java
+# Created by https://www.toptal.com/developers/gitignore/api/c,cmake,java
+# Edit at https://www.toptal.com/developers/gitignore?templates=c,cmake,java
 
 ### C ###
 # Prerequisites
@@ -55,6 +55,25 @@ Module.symvers
 Mkfile.old
 dkms.conf
 
+### CMake ###
+CMakeLists.txt.user
+CMakeCache.txt
+CMakeFiles
+CMakeScripts
+Testing
+Makefile
+cmake_install.cmake
+install_manifest.txt
+compile_commands.json
+CTestTestfile.cmake
+_deps
+
+### CMake Patch ###
+CMakeUserPresets.json
+
+# External projects
+*-prefix/
+
 ### Java ###
 # Compiled class file
 *.class
@@ -81,17 +100,10 @@ dkms.conf
 hs_err_pid*
 replay_pid*
 
-# End of https://www.toptal.com/developers/gitignore/api/c,java
+# End of https://www.toptal.com/developers/gitignore/api/c,cmake,java
 
 # Build output
 build/
 
 # Local documentation
 docs/
-
-# CMake generated
-CMakeFiles/
-CMakeCache.txt
-cmake_install.cmake
-Makefile
-compile_commands.json
