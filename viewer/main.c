@@ -18,6 +18,7 @@ typedef struct {
 static pending_t g_open[MAX_OPEN];
 static int       g_open_count = 0;
 static FILE *    g_log = NULL;
+static DWORD     g_start_tick = 0;
 
 static void track_open(const char *file, DWORD tick) {
     (void)tick;
@@ -48,9 +49,9 @@ static void check_stuck(void) {
             char abs_ts[24];
             strftime(abs_ts, sizeof(abs_ts), "%Y-%m-%d %H:%M:%S", lt);
 
-            DWORD now_tick = GetTickCount();
-            unsigned int sec  = now_tick / 1000;
-            unsigned int ms   = now_tick % 1000;
+            DWORD rel_tick = GetTickCount() - g_start_tick;
+            unsigned int sec  = rel_tick / 1000;
+            unsigned int ms   = rel_tick % 1000;
             unsigned int min  = sec / 60;
             unsigned int sec2 = sec % 60;
             char rel[16];
@@ -184,6 +185,7 @@ int main(void) {
     strcat(logPath, timebuf);
     strcat(logPath, ".log");
     g_log = fopen(logPath, "w");
+    g_start_tick = GetTickCount();
 
     printf("[me2-trace] Viewer\n");
     printf("[me2-trace] Log: %s\n", logPath);
