@@ -6,8 +6,87 @@
 
 #define PIPE_NAME "\\\\.\\pipe\\me2-trace"
 #define BUF_SIZE   4096
+#define STUCK_MS   5000   /* warn if file open > 5 sec without DONE */
+#define MAX_OPEN   64     /* max concurrent tracked opens */
 
-static FILE *g_log = NULL;
+/* Track in-flight opens for stuck detection */
+typedef struct {
+    char name[256];
+    DWORD tick;
+} pending_t;
+
+static pending_t g_open[MAX_OPEN];
+static int       g_open_count = 0;
+static FILE *    g_log = NULL;
+
+static void track_open(const char *file, DWORD tick) {
+    (void)tick;
+    if (g_open_count >= MAX_OPEN) return;
+    strncpy(g_open[g_open_count].name, file, 255);
+    g_open[g_open_count].name[255] = '\0';
+    g_open[g_open_count].tick = GetTickCount();  /* wall-clock */
+    g_open_count++;
+}
+
+static DWORD track_done(const char *file) {
+    for (int i = 0; i < g_open_count; i++) {
+        if (strcmp(g_open[i].name, file) == 0) {
+            DWORD elapsed = GetTickCount() - g_open[i].tick;
+            g_open[i] = g_open[--g_open_count];
+            return elapsed;
+        }
+    }
+    return 0;
+}
+
+static void check_stuck(void) {
+    for (int i = 0; i < g_open_count; i++) {
+        DWORD elapsed = GetTickCount() - g_open[i].tick;
+        if (elapsed > STUCK_MS) {
+            time_t now_abs = time(NULL);
+            struct tm *lt = localtime(&now_abs);
+            char abs_ts[24];
+            strftime(abs_ts, sizeof(abs_ts), "%Y-%m-%d %H:%M:%S", lt);
+
+            DWORD now_tick = GetTickCount();
+            unsigned int sec  = now_tick / 1000;
+            unsigned int ms   = now_tick % 1000;
+            unsigned int min  = sec / 60;
+            unsigned int sec2 = sec % 60;
+            char rel[16];
+            snprintf(rel, sizeof(rel), "%02u:%02u.%03u", min, sec2, ms);
+
+            char txt[512];
+            snprintf(txt, sizeof(txt),
+                     "[%s] [%s] STUCK? %s  (%.1fs since OPEN)",
+                     abs_ts, rel, g_open[i].name, elapsed / 1000.0);
+
+            HANDLE h = GetStdHandle(STD_OUTPUT_HANDLE);
+            WORD def = 7;
+            SetConsoleTextAttribute(h,
+                FOREGROUND_RED | FOREGROUND_INTENSITY);
+            printf("%s\n", txt);
+            SetConsoleTextAttribute(h, def);
+            if (g_log) { fprintf(g_log, "%s\n", txt); fflush(g_log); }
+
+            g_open[i].tick = GetTickCount();
+        }
+    }
+}
+
+/* Phase markers: key files -> section header */
+static const char *phase_marker(const char *fn) {
+    if (strstr(fn, "EntryMenu.pcc"))    return "Main Menu";
+    if (strstr(fn, "BioP_Nor.pcc"))     return "Normandy SR-2";
+    if (strstr(fn, "BioP_CitHub.pcc"))  return "Citadel";
+    if (strstr(fn, "BioP_ProFre.pcc"))  return "Omega";
+    if (strstr(fn, "BioP_TwrHub.pcc"))  return "Illium";
+    if (strstr(fn, "BioP_OmgHub.pcc"))  return "Omega Hub";
+    if (strstr(fn, "BioP_KroHub.pcc"))  return "Tuchanka";
+    if (strstr(fn, "BioP_QuaHub.pcc"))  return "Flotilla";
+    if (strstr(fn, "BioP_EndGm1.pcc"))  return "Suicide Mission";
+    return NULL;
+}
 
 static void print_line(const char *line) {
     HANDLE h = GetStdHandle(STD_OUTPUT_HANDLE);
@@ -42,31 +121,50 @@ static void print_line(const char *line) {
     char rel[16];
     snprintf(rel, sizeof(rel), "%02u:%02u.%03u", min, sec2, ms);
 
-    /* Absolute timestamp */
     time_t now_abs = time(NULL);
     struct tm *lt = localtime(&now_abs);
     char abs_ts[24];
     strftime(abs_ts, sizeof(abs_ts), "%Y-%m-%d %H:%M:%S", lt);
 
+    /* Check for stuck opens */
+    check_stuck();
+
+    /* Phase marker */
+    const char *phase = NULL;
+    if (strcmp(event, "open") == 0 && file[0]) {
+        phase = phase_marker(file);
+    }
+
     char txt[512];
+
+    if (phase) {
+        snprintf(txt, sizeof(txt), "--- %s ---", phase);
+        SetConsoleTextAttribute(h,
+            FOREGROUND_BLUE | FOREGROUND_GREEN | FOREGROUND_INTENSITY);
+        printf("[%s] [%s]\n", abs_ts, rel);
+        printf("%s\n", txt);
+        SetConsoleTextAttribute(h, def);
+        if (g_log) fprintf(g_log, "%s\n", txt);
+    }
 
     if (strcmp(event, "open") == 0) {
         snprintf(txt, sizeof(txt), "[%s] [%s] OPEN  %s", abs_ts, rel, file);
         SetConsoleTextAttribute(h, FOREGROUND_GREEN | FOREGROUND_INTENSITY);
+        track_open(file, tick);
     } else if (strcmp(event, "done") == 0) {
-        if (bytes >= 1024 * 1024)
-            snprintf(txt, sizeof(txt), "[%s] [%s] DONE  %s  (%.1f MB)",
-                     abs_ts, rel, file, bytes / (1024.0 * 1024.0));
-        else if (bytes >= 1024)
-            snprintf(txt, sizeof(txt), "[%s] [%s] DONE  %s  (%lu KB)",
-                     abs_ts, rel, file, bytes / 1024);
+        DWORD elapsed = track_done(file);
+        if (elapsed > 1000)
+            snprintf(txt, sizeof(txt), "[%s] [%s] DONE  %s  (%.2fs)",
+                     abs_ts, rel, file, elapsed / 1000.0);
         else
-            snprintf(txt, sizeof(txt), "[%s] [%s] DONE  %s  (%lu B)",
-                     abs_ts, rel, file, bytes);
+            snprintf(txt, sizeof(txt), "[%s] [%s] DONE  %s  (%lu ms)",
+                     abs_ts, rel, file, elapsed);
         SetConsoleTextAttribute(h, FOREGROUND_GREEN);
     } else {
-        snprintf(txt, sizeof(txt), "[%s] [%s] %s", abs_ts, rel, file[0] ? file : line);
-        SetConsoleTextAttribute(h, FOREGROUND_BLUE | FOREGROUND_GREEN | FOREGROUND_INTENSITY);
+        snprintf(txt, sizeof(txt), "[%s] [%s] %s", abs_ts, rel,
+                 file[0] ? file : line);
+        SetConsoleTextAttribute(h,
+            FOREGROUND_BLUE | FOREGROUND_GREEN | FOREGROUND_INTENSITY);
     }
 
     printf("%s\n", txt);
