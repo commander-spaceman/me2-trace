@@ -13,63 +13,59 @@ static void print_line(const char *line) {
     HANDLE h = GetStdHandle(STD_OUTPUT_HANDLE);
     WORD def = 7;
 
-    /* Parse: {"t":12345,"e":"open","f":"filename.pcc"} */
-    unsigned long tick = 0;
+    unsigned long tick = 0, bytes = 0;
     char event[16] = "";
     char file[256] = "";
 
     const char *tp = strstr(line, "\"t\":");
     const char *ep = strstr(line, "\"e\":\"");
     const char *fp = strstr(line, "\"f\":\"");
+    const char *bp = strstr(line, "\"b\":");
 
     if (tp) tick = strtoul(tp + 4, NULL, 10);
     if (ep) {
-        const char *start = ep + 5;
-        const char *end = strchr(start, '"');
-        if (end) {
-            int len = (int)(end - start);
-            if (len > 15) len = 15;
-            memcpy(event, start, len);
-            event[len] = '\0';
-        }
+        const char *s = ep + 5, *e = strchr(s, '"');
+        if (e) { int len = (int)(e - s); if (len > 15) len = 15;
+                 memcpy(event, s, len); event[len] = '\0'; }
     }
     if (fp) {
-        const char *start = fp + 5;
-        const char *end = strchr(start, '"');
-        if (end) {
-            int len = (int)(end - start);
-            if (len > 250) len = 250;
-            memcpy(file, start, len);
-            file[len] = '\0';
-        }
+        const char *s = fp + 5, *e = strchr(s, '"');
+        if (e) { int len = (int)(e - s); if (len > 250) len = 250;
+                 memcpy(file, s, len); file[len] = '\0'; }
     }
+    if (bp) bytes = strtoul(bp + 4, NULL, 10);
 
-    /* Format timestamp: mm:ss.ms */
     unsigned int sec  = tick / 1000;
     unsigned int ms   = tick % 1000;
     unsigned int min  = sec / 60;
     unsigned int sec2 = sec % 60;
-
     char ts[16];
     snprintf(ts, sizeof(ts), "%02u:%02u.%03u", min, sec2, ms);
 
-    /* Console output with colors */
+    char txt[512];
+
     if (strcmp(event, "open") == 0) {
+        snprintf(txt, sizeof(txt), "[%s] OPEN  %s", ts, file);
         SetConsoleTextAttribute(h, FOREGROUND_GREEN | FOREGROUND_INTENSITY);
-        printf("[%s] %s\n", ts, file);
-        SetConsoleTextAttribute(h, def);
-        if (g_log) fprintf(g_log, "[%s] %s\n", ts, file);
-    } else if (strcmp(event, "status") == 0) {
-        SetConsoleTextAttribute(h, FOREGROUND_BLUE | FOREGROUND_GREEN | FOREGROUND_INTENSITY);
-        printf("[%s] %s\n", ts, file);
-        SetConsoleTextAttribute(h, def);
-        if (g_log) fprintf(g_log, "[%s] %s\n", ts, file);
+    } else if (strcmp(event, "done") == 0) {
+        if (bytes >= 1024 * 1024)
+            snprintf(txt, sizeof(txt), "[%s] DONE  %s  (%.1f MB)",
+                     ts, file, bytes / (1024.0 * 1024.0));
+        else if (bytes >= 1024)
+            snprintf(txt, sizeof(txt), "[%s] DONE  %s  (%lu KB)",
+                     ts, file, bytes / 1024);
+        else
+            snprintf(txt, sizeof(txt), "[%s] DONE  %s  (%lu B)",
+                     ts, file, bytes);
+        SetConsoleTextAttribute(h, FOREGROUND_GREEN);
     } else {
-        printf("[%s] %s\n", ts, line);
-        if (g_log) fprintf(g_log, "[%s] %s\n", ts, line);
+        snprintf(txt, sizeof(txt), "[%s] %s", ts, file[0] ? file : line);
+        SetConsoleTextAttribute(h, FOREGROUND_BLUE | FOREGROUND_GREEN | FOREGROUND_INTENSITY);
     }
 
-    if (g_log) fflush(g_log);
+    printf("%s\n", txt);
+    SetConsoleTextAttribute(h, def);
+    if (g_log) { fprintf(g_log, "%s\n", txt); fflush(g_log); }
 }
 
 int main(void) {
@@ -87,7 +83,7 @@ int main(void) {
 
     printf("[me2-trace] Viewer\n");
     printf("[me2-trace] Log: %s\n", logPath);
-    printf("[me2-trace] Waiting for game (60s timeout)...\n");
+    printf("[me2-trace] Waiting for game (60s)...\n");
     printf("---\n");
 
     HANDLE pipe = INVALID_HANDLE_VALUE;
@@ -99,6 +95,7 @@ int main(void) {
             DWORD err = GetLastError();
             if (err != ERROR_PIPE_BUSY && err != ERROR_FILE_NOT_FOUND) {
                 fprintf(stderr, "[me2-trace] Pipe error: %lu\n", err);
+                if (g_log) fclose(g_log);
                 return 1;
             }
             if (!WaitNamedPipeA(PIPE_NAME, 5000)) Sleep(500);
@@ -107,11 +104,11 @@ int main(void) {
     }
     if (pipe == INVALID_HANDLE_VALUE) {
         fprintf(stderr, "[me2-trace] Pipe not available after 60s\n");
+        if (g_log) fclose(g_log);
         return 1;
     }
 
-    printf("[me2-trace] Connected\n");
-    printf("---\n");
+    printf("[me2-trace] Connected\n---\n");
 
     char buf[BUF_SIZE], line[BUF_SIZE];
     DWORD bytesRead;

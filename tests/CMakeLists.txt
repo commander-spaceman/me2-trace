@@ -10,6 +10,7 @@ add_test(NAME hook_loads
     COMMAND test_load
     WORKING_DIRECTORY $<TARGET_FILE_DIR:test_load>
 )
+set_tests_properties(hook_loads PROPERTIES TIMEOUT 15)
 
 add_executable(test_pipe_server test_pipe_server.c)
 target_compile_definitions(test_pipe_server PRIVATE _WIN32_WINNT=0x0600)
