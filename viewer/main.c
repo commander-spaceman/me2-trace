@@ -39,27 +39,33 @@ static void print_line(const char *line) {
     unsigned int ms   = tick % 1000;
     unsigned int min  = sec / 60;
     unsigned int sec2 = sec % 60;
-    char ts[16];
-    snprintf(ts, sizeof(ts), "%02u:%02u.%03u", min, sec2, ms);
+    char rel[16];
+    snprintf(rel, sizeof(rel), "%02u:%02u.%03u", min, sec2, ms);
+
+    /* Absolute timestamp */
+    time_t now_abs = time(NULL);
+    struct tm *lt = localtime(&now_abs);
+    char abs_ts[24];
+    strftime(abs_ts, sizeof(abs_ts), "%Y-%m-%d %H:%M:%S", lt);
 
     char txt[512];
 
     if (strcmp(event, "open") == 0) {
-        snprintf(txt, sizeof(txt), "[%s] OPEN  %s", ts, file);
+        snprintf(txt, sizeof(txt), "[%s] [%s] OPEN  %s", abs_ts, rel, file);
         SetConsoleTextAttribute(h, FOREGROUND_GREEN | FOREGROUND_INTENSITY);
     } else if (strcmp(event, "done") == 0) {
         if (bytes >= 1024 * 1024)
-            snprintf(txt, sizeof(txt), "[%s] DONE  %s  (%.1f MB)",
-                     ts, file, bytes / (1024.0 * 1024.0));
+            snprintf(txt, sizeof(txt), "[%s] [%s] DONE  %s  (%.1f MB)",
+                     abs_ts, rel, file, bytes / (1024.0 * 1024.0));
         else if (bytes >= 1024)
-            snprintf(txt, sizeof(txt), "[%s] DONE  %s  (%lu KB)",
-                     ts, file, bytes / 1024);
+            snprintf(txt, sizeof(txt), "[%s] [%s] DONE  %s  (%lu KB)",
+                     abs_ts, rel, file, bytes / 1024);
         else
-            snprintf(txt, sizeof(txt), "[%s] DONE  %s  (%lu B)",
-                     ts, file, bytes);
+            snprintf(txt, sizeof(txt), "[%s] [%s] DONE  %s  (%lu B)",
+                     abs_ts, rel, file, bytes);
         SetConsoleTextAttribute(h, FOREGROUND_GREEN);
     } else {
-        snprintf(txt, sizeof(txt), "[%s] %s", ts, file[0] ? file : line);
+        snprintf(txt, sizeof(txt), "[%s] [%s] %s", abs_ts, rel, file[0] ? file : line);
         SetConsoleTextAttribute(h, FOREGROUND_BLUE | FOREGROUND_GREEN | FOREGROUND_INTENSITY);
     }
 
