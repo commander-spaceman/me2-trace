@@ -95,7 +95,14 @@ int main(int argc, char **argv) {
     /* Load DLL in our own process to resolve InitPipe's RVA */
     HMODULE localDll = LoadLibraryA(dllPath);
     if (localDll) {
-        FARPROC localInitPipe = GetProcAddress(localDll, "InitPipe");
+        FARPROC localInitPipe = GetProcAddress(localDll, "InitPipe@4");
+        if (!localInitPipe) {
+            localInitPipe = GetProcAddress(localDll, "_InitPipe@4");
+        }
+        if (!localInitPipe) {
+            /* Fallback: try ordinal 1 */
+            localInitPipe = GetProcAddress(localDll, MAKEINTRESOURCEA(1));
+        }
         if (localInitPipe) {
             uintptr_t rva = (uintptr_t)localInitPipe - (uintptr_t)localDll;
             LPTHREAD_START_ROUTINE remoteInitPipe =
