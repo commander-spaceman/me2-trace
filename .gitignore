@@ -1,69 +1,97 @@
+# Created by https://www.toptal.com/developers/gitignore/api/c,java
+# Edit at https://www.toptal.com/developers/gitignore?templates=c,java
+
+### C ###
 # Prerequisites
 *.d
 
-# Compiled Object files
-*.slo
-*.lo
+# Object files
 *.o
+*.ko
 *.obj
+*.elf
+
+# Linker output
+*.ilk
+*.map
+*.exp
 
 # Precompiled Headers
 *.gch
 *.pch
 
-# Linker files
-*.ilk
-
-# Debugger Files
-*.pdb
-
-# Compiled Dynamic libraries
-*.so
-*.dylib
-*.dll
-*.so.*
-
-
-# Fortran module files
-*.mod
-*.smod
-
-# Compiled Static libraries
-*.lai
-*.la
-*.a
+# Libraries
 *.lib
+*.a
+*.la
+*.lo
+
+# Shared objects (inc. Windows DLLs)
+*.dll
+*.so
+*.so.*
+*.dylib
 
 # Executables
 *.exe
 *.out
 *.app
+*.i*86
+*.x86_64
+*.hex
 
-# Build directories
+# Debug files
+*.dSYM/
+*.su
+*.idb
+*.pdb
+
+# Kernel Module Compile Results
+*.mod*
+*.cmd
+.tmp_versions/
+modules.order
+Module.symvers
+Mkfile.old
+dkms.conf
+
+### Java ###
+# Compiled class file
+*.class
+
+# Log file
+*.log
+
+# BlueJ files
+*.ctxt
+
+# Mobile Tools for Java (J2ME)
+.mtj.tmp/
+
+# Package Files #
+*.jar
+*.war
+*.nar
+*.ear
+*.zip
+*.tar.gz
+*.rar
+
+# virtual machine crash logs, see http://www.java.com/en/download/help/error_hotspot.xml
+hs_err_pid*
+replay_pid*
+
+# End of https://www.toptal.com/developers/gitignore/api/c,java
+
+# Build output
 build/
-Build/
-build-*/
 
-# CMake generated files
+# Local documentation
+docs/
+
+# CMake generated
 CMakeFiles/
 CMakeCache.txt
 cmake_install.cmake
 Makefile
-install_manifest.txt
 compile_commands.json
-
-# Local documentation & planning
-docs/
-*.log
-*.bak
-*.swp
-
-# vcpkg
-vcpkg_installed/
-
-# debug information files
-*.dwo
-
-# test output & cache
-Testing/
-.cache/
