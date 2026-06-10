@@ -1,43 +1,69 @@
 #include <windows.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+#include <time.h>
 
 #define PIPE_NAME "\\\\.\\pipe\\me2-trace"
 #define BUF_SIZE   4096
 
-/* Minimal JSON-ish colorizer */
+static FILE *g_log = NULL;
+
+/* Write a line to both console (colored) and log file (plain) */
 static void print_line(const char *line) {
     HANDLE h = GetStdHandle(STD_OUTPUT_HANDLE);
-    WORD default_attr = 7; /* light gray */
+    WORD default_attr = 7;
 
-    /* Very simple color coding based on message type */
+    const char *prefix = "";
+
     if (strstr(line, "\"type\":\"file\"")) {
         SetConsoleTextAttribute(h, FOREGROUND_GREEN | FOREGROUND_INTENSITY);
-        printf("[FILE] ");
-        SetConsoleTextAttribute(h, default_attr);
-        printf("%s\n", line);
+        prefix = "[FILE] ";
     } else if (strstr(line, "\"type\":\"serialize\"")) {
         SetConsoleTextAttribute(h, FOREGROUND_RED | FOREGROUND_BLUE | FOREGROUND_INTENSITY);
-        printf("[SER]  ");
-        SetConsoleTextAttribute(h, default_attr);
-        printf("%s\n", line);
+        prefix = "[SER]  ";
     } else if (strstr(line, "\"type\":\"status\"")) {
         SetConsoleTextAttribute(h, FOREGROUND_BLUE | FOREGROUND_GREEN | FOREGROUND_INTENSITY);
-        printf("[STAT] ");
-        SetConsoleTextAttribute(h, default_attr);
-        printf("%s\n", line);
+        prefix = "[STAT] ";
     } else if (strstr(line, "\"type\":\"err\"")) {
         SetConsoleTextAttribute(h, FOREGROUND_RED | FOREGROUND_INTENSITY);
-        printf("[ERR]  ");
-        SetConsoleTextAttribute(h, default_attr);
-        printf("%s\n", line);
-    } else {
-        printf("%s\n", line);
+        prefix = "[ERR]  ";
+    }
+
+    /* Console */
+    printf("%s%s\n", prefix, line);
+    SetConsoleTextAttribute(h, default_attr);
+
+    /* Log file */
+    if (g_log) {
+        fprintf(g_log, "%s%s\n", prefix, line);
+        fflush(g_log);
     }
 }
 
 int main(void) {
+    /* Create timestamped log file next to viewer */
+    char logPath[MAX_PATH];
+    GetModuleFileNameA(NULL, logPath, MAX_PATH);
+    char *ext = strrchr(logPath, '.');
+    if (ext) *ext = '\0';
+
+    time_t now = time(NULL);
+    struct tm *tm_info = localtime(&now);
+    char timebuf[32];
+    strftime(timebuf, sizeof(timebuf), "_%Y%m%d_%H%M%S", tm_info);
+
+    strcat(logPath, timebuf);
+    strcat(logPath, ".log");
+
+    g_log = fopen(logPath, "w");
+    if (!g_log) {
+        fprintf(stderr, "[me2-trace] WARNING: cannot create log file %s\n",
+                logPath);
+    }
+
     printf("[me2-trace] Viewer connecting to pipe...\n");
+    printf("[me2-trace] Log file: %s\n", logPath);
     printf("[me2-trace] Waiting for game to start (timeout 60s)...\n");
     printf("---\n");
 
@@ -110,5 +136,9 @@ int main(void) {
     }
 
     CloseHandle(pipe);
+    if (g_log) {
+        fprintf(g_log, "---\n[me2-trace] Session ended\n");
+        fclose(g_log);
+    }
     return 0;
 }
