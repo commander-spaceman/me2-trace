@@ -38,6 +38,8 @@ DWORD WINAPI InitPipe(LPVOID param) {
     Sleep(100);
     OutputDebugStringA("[me2-trace] InitPipe: starting...");
     pipe_init();
+    pipe_wait_connected();  /* ensure viewer is ready before init */
+    pipe_write("{\"type\":\"rtti\",\"msg\":\"InitPipe: pipe connected, starting hooks\"}\n");
     hook_files_init();
     hook_serialize_init();
     OutputDebugStringA("[me2-trace] InitPipe: done");

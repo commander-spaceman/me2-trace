@@ -9,5 +9,6 @@
 int  pipe_init(void);
 void pipe_shutdown(void);
 void pipe_write(const char *msg);
+void pipe_wait_connected(void);
 
 #endif

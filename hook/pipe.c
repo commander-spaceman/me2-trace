@@ -4,6 +4,7 @@
 
 static HANDLE g_pipe = INVALID_HANDLE_VALUE;
 static HANDLE g_pipe_thread = NULL;
+static HANDLE g_pipe_ready_event = NULL;
 static CRITICAL_SECTION g_pipe_lock;
 
 static DWORD WINAPI pipe_server_thread(LPVOID param) {
@@ -45,11 +46,14 @@ static DWORD WINAPI pipe_server_thread(LPVOID param) {
 
     pipe_write("{\"type\":\"status\",\"msg\":\"me2-trace DLL active\"}\n");
 
+    if (g_pipe_ready_event) SetEvent(g_pipe_ready_event);
+
     return 0;
 }
 
 int pipe_init(void) {
     InitializeCriticalSection(&g_pipe_lock);
+    g_pipe_ready_event = CreateEventA(NULL, FALSE, FALSE, NULL);
     g_pipe_thread = CreateThread(
         NULL, 0, pipe_server_thread, NULL, 0, NULL);
     return g_pipe_thread ? 0 : 1;
@@ -71,7 +75,18 @@ void pipe_shutdown(void) {
         g_pipe_thread = NULL;
     }
 
+    if (g_pipe_ready_event) {
+        CloseHandle(g_pipe_ready_event);
+        g_pipe_ready_event = NULL;
+    }
+
     DeleteCriticalSection(&g_pipe_lock);
+}
+
+void pipe_wait_connected(void) {
+    if (g_pipe_ready_event) {
+        WaitForSingleObject(g_pipe_ready_event, 30000);
+    }
 }
 
 void pipe_write(const char *msg) {
