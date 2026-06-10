@@ -6,15 +6,12 @@
 
 #include "../vendor/minhook/include/MinHook.h"
 
-/* Original function pointers */
 static HANDLE (WINAPI *real_CreateFileW)(
     LPCWSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES,
     DWORD, DWORD, HANDLE) = CreateFileW;
 
-static BOOL (WINAPI *real_ReadFile)(
-    HANDLE, LPVOID, DWORD, LPDWORD, LPOVERLAPPED) = ReadFile;
+static DWORD g_start_tick = 0;
 
-/* Check if a file extension is game-relevant */
 static int is_game_ext(const wchar_t *path) {
     const wchar_t *dot = NULL;
     const wchar_t *p = path;
@@ -25,14 +22,12 @@ static int is_game_ext(const wchar_t *path) {
     }
     if (!dot) return 0;
 
-    /* Case-insensitive extension check */
-    const wchar_t *ext = dot; /* includes the dot */
-    int len = (int)(p - ext);
-    if (len != 4) return 0; /* .xxx = 4 chars */
+    int len = (int)(p - dot);
+    if (len != 4) return 0;
 
     wchar_t lower[5];
-    for (int i = 0; i < 4 && ext[i]; i++)
-        lower[i] = (ext[i] >= L'A' && ext[i] <= L'Z') ? ext[i] + 32 : ext[i];
+    for (int i = 0; i < 4 && dot[i]; i++)
+        lower[i] = (dot[i] >= L'A' && dot[i] <= L'Z') ? dot[i] + 32 : dot[i];
     lower[4] = L'\0';
 
     return (wcscmp(lower, L".pcc") == 0 ||
@@ -42,23 +37,21 @@ static int is_game_ext(const wchar_t *path) {
             wcscmp(lower, L".u")   == 0);
 }
 
-/* Format a wide path as JSON string in the pipe message */
-static void make_json_path(const wchar_t *wpath, char *out, int outlen) {
-    int pos = 0;
-    out[pos++] = '"';
-    while (*wpath && pos < outlen - 2) {
-        wchar_t c = *wpath++;
-        if (c == L'\\') { out[pos++] = '\\'; out[pos++] = '\\'; }
-        else if (c == L'"')  { out[pos++] = '\\'; out[pos++] = '"'; }
-        else if (c < 0x80)   { out[pos++] = (char)c; }
-        else { out[pos++] = '?'; } /* non-ASCII fallback */
+/* Extract filename (last component) from a path, converting to ASCII */
+static void get_filename_ascii(const wchar_t *wpath, char *out, int outlen) {
+    const wchar_t *name = wpath;
+    for (const wchar_t *p = wpath; *p; p++) {
+        if (*p == L'\\' || *p == L'/') name = p + 1;
     }
-    out[pos++] = '"';
-    out[pos] = '\0';
+    int i = 0;
+    while (name[i] && i < outlen - 1) {
+        out[i] = (char)(name[i] < 0x80 ? name[i] : '?');
+        i++;
+    }
+    out[i] = '\0';
 }
 
-/* ── Detour: CreateFileW ──────────────────────────────────────── */
-
+/* Format: "tick|OPEN|filename.pcc" */
 static HANDLE WINAPI detour_CreateFileW(
     LPCWSTR lpFileName,
     DWORD dwDesiredAccess,
@@ -72,60 +65,33 @@ static HANDLE WINAPI detour_CreateFileW(
                                      lpSecurityAttributes, dwCreationDisposition,
                                      dwFlagsAndAttributes, hTemplateFile);
 
-    if (result != INVALID_HANDLE_VALUE && lpFileName && is_game_ext(lpFileName)) {
-        char jsonPath[1024];
-        make_json_path(lpFileName, jsonPath, sizeof(jsonPath));
+    if (result != INVALID_HANDLE_VALUE && lpFileName && is_game_ext(lpFileName))
+    {
+        char fn[256];
+        get_filename_ascii(lpFileName, fn, sizeof(fn));
 
-        char msg[2048];
+        DWORD tick = GetTickCount() - g_start_tick;
+        char msg[512];
         int n = snprintf(msg, sizeof(msg),
-                "{\"type\":\"file\",\"op\":\"create\",\"path\":%s}\n", jsonPath);
+                "{\"t\":%lu,\"e\":\"open\",\"f\":\"%s\"}\n", tick, fn);
         if (n > 0 && n < (int)sizeof(msg)) pipe_write(msg);
     }
 
     return result;
 }
 
-/* ── Detour: ReadFile ─────────────────────────────────────────── */
-
-static BOOL WINAPI detour_ReadFile(
-    HANDLE hFile,
-    LPVOID lpBuffer,
-    DWORD nNumberOfBytesToRead,
-    LPDWORD lpNumberOfBytesRead,
-    LPOVERLAPPED lpOverlapped)
-{
-    BOOL result = real_ReadFile(hFile, lpBuffer, nNumberOfBytesToRead,
-                                lpNumberOfBytesRead, lpOverlapped);
-
-    /* Log reads over 512 bytes (likely content, not tiny header reads) */
-    if (result && nNumberOfBytesToRead > 512) {
-        char msg[256];
-        int n = snprintf(msg, sizeof(msg),
-                "{\"type\":\"file\",\"op\":\"read\",\"size\":%lu}\n",
-                nNumberOfBytesToRead);
-        if (n > 0 && n < (int)sizeof(msg)) pipe_write(msg);
-    }
-
-    return result;
-}
-
-/* Track whether hooks are active so shutdown is idempotent */
 static int g_hooks_active = 0;
-
-/* ── Public ───────────────────────────────────────────────────── */
 
 int hook_files_init(void) {
     MH_STATUS status;
 
-    if (g_hooks_active) return 0;  /* already initialized */
+    if (g_hooks_active) return 0;
+
+    g_start_tick = GetTickCount();
 
     status = MH_Initialize();
     if (status != MH_OK) {
-        char buf[128];
-        snprintf(buf, sizeof(buf),
-                "[me2-trace] MH_Initialize failed: %s",
-                MH_StatusToString(status));
-        OutputDebugStringA(buf);
+        OutputDebugStringA("[me2-trace] MH_Initialize failed");
         return 1;
     }
 
@@ -133,54 +99,27 @@ int hook_files_init(void) {
         L"kernel32.dll", "CreateFileW",
         detour_CreateFileW, (LPVOID *)&real_CreateFileW);
     if (status != MH_OK) {
-        char buf[128];
-        snprintf(buf, sizeof(buf),
-                "[me2-trace] MH_CreateHookApi(CreateFileW): %s",
-                MH_StatusToString(status));
-        OutputDebugStringA(buf);
-        return 1;
-    }
-
-    status = MH_CreateHookApi(
-        L"kernel32.dll", "ReadFile",
-        detour_ReadFile, (LPVOID *)&real_ReadFile);
-    if (status != MH_OK) {
-        char buf[128];
-        snprintf(buf, sizeof(buf),
-                "[me2-trace] MH_CreateHookApi(ReadFile): %s",
-                MH_StatusToString(status));
-        OutputDebugStringA(buf);
-        /* Clean up CreateFileW hook created above */
-        MH_RemoveHook((LPVOID)real_CreateFileW);
-        real_CreateFileW = CreateFileW;
+        OutputDebugStringA("[me2-trace] CreateFileW hook failed");
         return 1;
     }
 
     status = MH_EnableHook(MH_ALL_HOOKS);
     if (status != MH_OK) {
-        char buf[128];
-        snprintf(buf, sizeof(buf),
-                "[me2-trace] MH_EnableHook: %s",
-                MH_StatusToString(status));
-        OutputDebugStringA(buf);
+        OutputDebugStringA("[me2-trace] MH_EnableHook failed");
         MH_RemoveHook((LPVOID)real_CreateFileW);
-        MH_RemoveHook((LPVOID)real_ReadFile);
         real_CreateFileW = CreateFileW;
-        real_ReadFile = ReadFile;
         return 1;
     }
 
     g_hooks_active = 1;
-    OutputDebugStringA("[me2-trace] File I/O hooks active");
+    OutputDebugStringA("[me2-trace] File hooks active");
     return 0;
 }
 
 void hook_files_shutdown(void) {
     if (!g_hooks_active) return;
-
     g_hooks_active = 0;
-
     MH_DisableHook(MH_ALL_HOOKS);
     MH_Uninitialize();
-    OutputDebugStringA("[me2-trace] File I/O hooks removed");
+    OutputDebugStringA("[me2-trace] File hooks removed");
 }
